@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stacked/stacked.dart';
@@ -32,7 +32,7 @@ class _EmailVerificationViewState extends State<EmailVerificationView> {
       builder: (context, model, child) {
         final displayEmail = model.email.text.isNotEmpty
             ? model.email.text
-            : (FirebaseAuth.instance.currentUser?.email ?? "your email address");
+            : "your email address";
 
         return Scaffold(
           backgroundColor: const Color(0xFF0F0A1E),

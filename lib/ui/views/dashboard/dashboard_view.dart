@@ -7,6 +7,8 @@ import '../../../state.dart';
 import '../../common/app_colors.dart';
 import '../../common/ui_helpers.dart';
 import '../../dialogs/add_naira_dialog.dart';
+import '../../dialogs/bottom_sheets/save_bitcoin_sheet.dart';
+import '../../dialogs/bottom_sheets/nostr_transfer_sheet.dart';
 import '../transactions/all_transactions_view.dart';
 import 'dashboard_viewmodel.dart';
 
@@ -48,30 +50,40 @@ DashboardView({Key? key}) : super(key: key);
   }
 
   Widget _buildWelcomeHeader() {
-    final currentUser = profile.value;
-    final name = currentUser.firstName?.isNotEmpty == true
-        ? currentUser.firstName
-        : "Guest";
+    return ValueListenableBuilder(
+      valueListenable: profile,
+      builder: (context, currentUser, _) {
+        // Try firstName first, fall back to fullName, then to the part before @ in the email
+        String name = 'Guest';
+        if (currentUser.firstName?.isNotEmpty == true) {
+          name = currentUser.firstName!;
+        } else if (currentUser.username?.isNotEmpty == true) {
+          name = currentUser.username!;
+        } else if (currentUser.email?.isNotEmpty == true) {
+          name = currentUser.email!.split('@').first;
+        }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          "Hi, $name",
-          style: GoogleFonts.redHatDisplay(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        Row(
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _buildCircularIconButton(Icons.search_rounded),
-            const SizedBox(width: 12),
-            _buildCircularIconButton(Icons.notifications_rounded),
+            Text(
+              "Hi, $name 👋",
+              style: GoogleFonts.redHatDisplay(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Row(
+              children: [
+                _buildCircularIconButton(Icons.search_rounded),
+                const SizedBox(width: 12),
+                _buildCircularIconButton(Icons.notifications_rounded),
+              ],
+            ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -169,27 +181,37 @@ DashboardView({Key? key}) : super(key: key);
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1B4D2E), // Dark green bg
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.arrow_outward_rounded, color: Color(0xFF4CAF50), size: 10),
-                        const SizedBox(width: 4),
-                        Text(
-                          '+2.50',
-                          style: GoogleFonts.redHatDisplay(
-                            color: const Color(0xFF4CAF50),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  Builder(
+                    builder: (context) {
+                      final isPositive = viewModel.todayChange >= 0;
+                      final sign = isPositive ? '+' : '';
+                      final color = isPositive ? const Color(0xFF4CAF50) : const Color(0xFFE53935);
+                      final bgColor = isPositive ? const Color(0xFF1B4D2E) : const Color(0xFF4D1B1B);
+                      final icon = isPositive ? Icons.arrow_outward_rounded : Icons.arrow_downward_rounded;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: bgColor,
+                          borderRadius: BorderRadius.circular(4),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          children: [
+                            Icon(icon, color: color, size: 10),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$sign${viewModel.todayChange.toStringAsFixed(2)}%',
+                              style: GoogleFonts.redHatDisplay(
+                                color: color,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -240,10 +262,10 @@ DashboardView({Key? key}) : super(key: key);
                           },
                         );
                       },
-                      icon: const Icon(Icons.add, size: 18),
+                      icon: const Icon(Icons.add, size: 16),
                       label: Text(
-                        'top up wallet',
-                        style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w700),
+                        'Top Up',
+                        style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w700, fontSize: 13),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF6B4EE6),
@@ -254,22 +276,45 @@ DashboardView({Key? key}) : super(key: key);
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {
-                        _showSaveDialog(context, viewModel);
+                        SaveBitcoinSheet.show(context, viewModel);
                       },
-                      icon: const Icon(Icons.lock_outline, size: 16),
+                      icon: const Icon(Icons.lock_outline, size: 15),
                       label: Text(
                         'Save',
-                        style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w600),
+                        style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w600, fontSize: 13),
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white, width: 1),
+                        side: const BorderSide(color: Colors.white38, width: 1),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        NostrTransferSheet.show(context, viewModel);
+                      },
+                      icon: const Icon(Icons.bolt, size: 16, color: Colors.orangeAccent),
+                      label: Text(
+                        'Send',
+                        style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF28243D),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: const BorderSide(color: Color(0xFF6B4EE6), width: 1),
+                        ),
                       ),
                     ),
                   ),
@@ -537,126 +582,7 @@ DashboardView({Key? key}) : super(key: key);
   }
 
   void _showSaveDialog(BuildContext context, DashboardViewModel viewModel) {
-    final amountController = TextEditingController();
-    int selectedMonths = 3;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (stfContext, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1C1A22),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Text(
-                'Save to Bitcoin',
-                style: GoogleFonts.redHatDisplay(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Enter Naira amount to convert and lock as Bitcoin savings.',
-                    style: GoogleFonts.redHatDisplay(fontSize: 13, color: Colors.white54),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: amountController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Amount (NGN)',
-                      labelStyle: const TextStyle(color: Colors.white54),
-                      prefixText: '₦ ',
-                      prefixStyle: const TextStyle(color: Colors.white),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.white24),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF6B4EE6)),
-                      ),
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Lock Duration',
-                    style: GoogleFonts.redHatDisplay(fontSize: 13, color: Colors.white70),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [3, 6, 12].map((months) {
-                      final selected = selectedMonths == months;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () => setDialogState(() => selectedMonths = months),
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? const Color(0xFF6B4EE6)
-                                  : Colors.white.withValues(alpha: 0.06),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: selected ? const Color(0xFF6B4EE6) : Colors.white24,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                '$months mo',
-                                style: GoogleFonts.redHatDisplay(
-                                  color: Colors.white,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(
-                    'Cancel',
-                    style: GoogleFonts.redHatDisplay(color: Colors.white54),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final amount = double.tryParse(amountController.text);
-                    if (amount != null && amount >= 100) {
-                      Navigator.of(dialogContext).pop();
-                      viewModel.saveToBitcoin(amount, selectedMonths, context);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6B4EE6),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: Text(
-                    'Save Now',
-                    style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    SaveBitcoinSheet.show(context, viewModel);
   }
 
   @override

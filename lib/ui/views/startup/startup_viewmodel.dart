@@ -1,79 +1,56 @@
-// startup_viewmodel.dart (only showing the class body / imports as needed)
 import 'dart:convert';
-import 'package:bip39/bip39.dart' as bip39;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:stacked/stacked.dart';
 import 'package:stacked_services/stacked_services.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide User;
+
 import '../../../app/app.locator.dart';
 import '../../../app/app.router.dart';
 import '../../../core/data/models/user_model.dart';
-import '../../../core/network/api_response.dart';
-import '../../../core/network/interceptors.dart';
+import '../../../core/services/secure_storage_service.dart';
 import '../../../core/utils/local_store_dir.dart';
 import '../../../core/utils/local_stotage.dart';
+import '../../../services/authentication_service.dart';
 import '../../../state.dart';
-import '../auth/auth_view.dart';
-
 
 class StartupViewModel extends BaseViewModel {
   final _navigationService = locator<NavigationService>();
-  final _auth = FirebaseAuth.instance;
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = locator<SecureStorageService>();
+  final _authService = locator<AuthenticationService>();
 
-  // Place anything here that needs to happen before we get into the application
-  Future runStartupLogic() async {
+  Future<void> runStartupLogic() async {
     setBusy(true);
     try {
-      // small delay to show splash nicely (optional)
-      await Future.delayed(const Duration(seconds: 1));
-    
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      // 3) Proceed with auth/navigation logic
-      final user = _auth.currentUser;
-      if (user != null) {
-        await user.reload();
-        final updatedUser = _auth.currentUser;
-        
-        if (updatedUser != null && updatedUser.emailVerified) {
-          userLoggedIn.value = true;
-          String? userJson =
-              await locator<LocalStorage>().fetch(LocalStorageDir.authUser);
-          if (userJson != null) {
-            profile.value =
-                User.fromJson(Map<String, dynamic>.from(jsonDecode(userJson)));
-          }
-          _navigationService.clearStackAndShow(Routes.homeView);
-        } else {
-          _navigationService.clearStackAndShow(
-            Routes.authView,
-            arguments: const AuthViewArguments(authType: AuthType.emailVerification),
-          );
+      // 1. Check if secure JWT token exists
+      final token = await _secureStorage.getToken();
+
+      if (token != null && token.isNotEmpty) {
+        // Attempt to fetch profile from staging API with Bearer token
+        try {
+          await _authService.fetchUserProfile();
+        } catch (e) {
+          debugPrint('Could not refresh profile online: $e');
         }
+
+        // Check if cached user data is available
+        final userJson = await locator<LocalStorage>().fetch(LocalStorageDir.authUser);
+        if (userJson != null) {
+          try {
+            profile.value = User.fromJson(Map<String, dynamic>.from(jsonDecode(userJson)));
+          } catch (_) {}
+        }
+
+        userLoggedIn.value = true;
+        _navigationService.clearStackAndShow(Routes.homeView);
       } else {
-        _navigationService.replaceWithAuthView(authType: AuthType.register);
+        _navigationService.clearStackAndShow(Routes.onboardingView);
       }
     } catch (e, st) {
-      print('Startup init error: $e\n$st');
-      // fallback to auth to avoid blocking the user
-      _navigationService.replaceWithAuthView(authType: AuthType.register);
+      debugPrint('Startup init error: $e\n$st');
+      _navigationService.clearStackAndShow(Routes.onboardingView);
     } finally {
       setBusy(false);
-    }
-  }
-
-  void getProfile() async {
-    try {
-      ApiResponse res = await repo.getProfile();
-      if (res.statusCode == 200) {
-        profile.value =
-            User.fromJson(Map<String, dynamic>.from(res.data['data']));
-        await locator<LocalStorage>()
-            .save(LocalStorageDir.profileView, res.data["data"]);
-        notifyListeners();
-      }
-    } catch (e) {
-      throw Exception(e);
     }
   }
 }

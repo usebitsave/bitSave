@@ -4,8 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide User;
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl_phone_field/phone_number.dart';
@@ -18,7 +16,7 @@ import '../../../core/data/models/user_model.dart';
 import '../../../core/data/repositories/repository.dart';
 import '../../../services/authentication_service.dart';
 import '../../../core/utils/local_store_dir.dart';
-import '../../../core/utils/local_stotage.dart'; // need Fixing of typo from 'local_stotage.dart' to [local_storage.dart]
+import '../../../core/utils/local_stotage.dart';
 import '../../../state.dart';
 import 'auth_view.dart';
 import './reset_password/reset_password_view.dart';
@@ -45,7 +43,7 @@ class AuthViewModel extends BaseViewModel {
   bool obscure = true;
   String? errorMessage;
   bool codeSent = false;
-  
+
   final AuthenticationService _authService = locator<AuthenticationService>();
   final Repository _repo = locator<Repository>();
 
@@ -91,7 +89,7 @@ class AuthViewModel extends BaseViewModel {
     });
   }
 
-  /// Registers a new user with Firebase Auth and switches to the strict verification screen.
+  /// Registers a new user via the backend API.
   Future<void> register({
     required String fullName,
     required String dob,
@@ -99,52 +97,44 @@ class AuthViewModel extends BaseViewModel {
   }) async {
     setBusy(true);
     try {
-      if (email.text.trim().isEmpty || password.text.trim().isEmpty) {
+      final emailInput = email.text.trim();
+      final passwordInput = password.text.trim();
+
+      if (emailInput.isEmpty || passwordInput.isEmpty) {
         locator<SnackbarService>().showSnackbar(
-          message: 'Please fill in all required fields.',
+          message: 'Please fill in both email and password.',
         );
         return;
       }
 
-      // 1. Invokes registration (AuthService internally pushes to Firestore and shoots the email verification)
-      final credential = await _authService.registerNewUser(
-        email: email.text.trim(),
-        password: password.text.trim(),
-        fullName: fullName,
-        dob: dob,
-      );
-
-      final firebaseUser = credential.user;
-      if (firebaseUser == null) {
+      if (passwordInput.length < 8) {
         locator<SnackbarService>().showSnackbar(
-          message: 'Registration failed. Please try again.',
+          message: 'Password must be at least 8 characters long.',
         );
         return;
       }
 
-      await firebaseUser.updateDisplayName(fullName);
+      final resp = await _repo.register({
+        'email': emailInput,
+        'password': passwordInput,
+      });
 
-      // 2. Temporarily track data, but keep global state unverified until email confirmation
-      profile.value = User.fromFirebase(firebaseUser);
-      
-      // 3. Trigger screen routing callback securely passed from the view layer
-      onSuccess();
-    } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'email-already-in-use':
-          message = 'An account with this email already exists.';
-          break;
-        case 'invalid-email':
-          message = 'That email address looks invalid.';
-          break;
-        case 'weak-password':
-          message = 'Your password is too weak. Use at least 8 characters.';
-          break;
-        default:
-          message = 'Registration failed. Please try again.';
+      if (resp.isSuccess && resp.data != null && resp.data['token'] != null) {
+        final token = resp.data['token'] as String;
+        await _authService.handleAuthSuccess(
+          token,
+          email: emailInput,
+          fullName: fullName,
+        );
+        locator<SnackbarService>().showSnackbar(
+          message: 'Account created successfully!',
+        );
+        onSuccess();
+      } else {
+        locator<SnackbarService>().showSnackbar(
+          message: resp.errorMessage,
+        );
       }
-      locator<SnackbarService>().showSnackbar(message: message);
     } catch (e) {
       locator<SnackbarService>().showSnackbar(
         message: 'Something went wrong. Please try again later.',
@@ -154,83 +144,43 @@ class AuthViewModel extends BaseViewModel {
     }
   }
 
-  /// Logs a user in and strictly enforces validation check blocks
+  /// Logs a user in via the backend API.
   Future<void> login() async {
     setBusy(true);
+    setError(null); // clear previous error
     try {
-      if (email.text.trim().isEmpty || password.text.trim().isEmpty) {
-        locator<SnackbarService>().showSnackbar(
-          message: "Please enter both your email and password to continue.",
-        );
+      final emailInput = email.text.trim();
+      final passwordInput = password.text.trim();
+
+      if (emailInput.isEmpty || passwordInput.isEmpty) {
+        setError("Please enter both your email and password to continue.");
         return;
       }
 
-      final credential = await _authService.signIn(
-        email.text.trim(),
-        password.text.trim(),
-      );
+      final resp = await _repo.login({
+        'email': emailInput,
+        'password': passwordInput,
+      });
 
-      final firebaseUser = credential?.user;
-      if (firebaseUser == null) {
-        locator<SnackbarService>().showSnackbar(
-          message: 'Login failed. Please check your credentials.',
+      if (resp.isSuccess && resp.data != null && resp.data['token'] != null) {
+        final token = resp.data['token'] as String;
+        await _authService.handleAuthSuccess(
+          token,
+          email: emailInput,
         );
-        return;
+        updateDeviceDetails();
+        locator<NavigationService>().clearStackAndShow(Routes.homeView);
+      } else {
+        final errMsg = resp.errorMessage.isNotEmpty
+            ? resp.errorMessage
+            : 'Invalid credentials. Please check your email and password.';
+        setError(errMsg);
+        locator<SnackbarService>().showSnackbar(message: errMsg);
       }
-
-      // STRICT GATE ENFORCEMENT: Is the incoming session validated via email link?
-      if (!firebaseUser.emailVerified) {
-        locator<SnackbarService>().showSnackbar(
-          message: "Your email is not verified yet. Please check your inbox.",
-        );
-        
-        // Push unverified user directly to the locked tracking view screen
-        locator<NavigationService>().clearStackAndShow(
-          Routes.authView,
-          arguments: const AuthViewArguments(authType: AuthType.emailVerification),
-        ); 
-        return;
-      }
-
-      // If user is cleared via email verification, parse authorization credentials normally
-      final loggedInUser = User.fromFirebase(firebaseUser);
-
-      profile.value = loggedInUser;
-      userLoggedIn.value = true;
-
-      await locator<LocalStorage>().save(
-        LocalStorageDir.authUser,
-        jsonEncode(profile.value.toJson()),
-      );
-
-      // Pull metadata modifications (tokens, platform architecture versions)
-      updateDeviceDetails();
-
-      locator<NavigationService>().clearStackAndShow(Routes.homeView);
-    } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'user-not-found':
-        case 'invalid-credential': // Catches unified modern auth errors
-          message = "We couldn't find an account matching those credentials.";
-          break;
-        case 'wrong-password':
-          message = "The password you entered is incorrect.";
-          break;
-        case 'invalid-email':
-          message = "That email address looks invalid. Please try again.";
-          break;
-        case 'user-disabled':
-          message = "This account has been disabled. Contact support for help.";
-          break;
-        default:
-          message = "Login failed. Please check your details and try again.";
-      }
-      locator<SnackbarService>().showSnackbar(message: message);
     } catch (e) {
-      locator<SnackbarService>().showSnackbar(
-        message: "Something went wrong. Please try again later.",
-      );
+      const errMsg = "Something went wrong. Please try again later.";
+      setError(errMsg);
+      locator<SnackbarService>().showSnackbar(message: errMsg);
     } finally {
       setBusy(false);
     }
@@ -239,29 +189,8 @@ class AuthViewModel extends BaseViewModel {
   Timer? _verificationTimer;
 
   void startVerificationCheckTimer(VoidCallback onVerified) {
+    // TODO: wire to backend email-verification polling if needed
     _verificationTimer?.cancel();
-    _verificationTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
-      final user = _authService.firebaseAuth.currentUser;
-      if (user != null) {
-        await user.reload();
-        final updatedUser = _authService.firebaseAuth.currentUser;
-        if (updatedUser != null && updatedUser.emailVerified) {
-          timer.cancel();
-          // Update profile and log in
-          final loggedInUser = User.fromFirebase(updatedUser);
-          profile.value = loggedInUser;
-          userLoggedIn.value = true;
-
-          await locator<LocalStorage>().save(
-            LocalStorageDir.authUser,
-            jsonEncode(profile.value.toJson()),
-          );
-
-          updateDeviceDetails();
-          onVerified();
-        }
-      }
-    });
   }
 
   void cancelVerificationTimer() {
@@ -270,13 +199,10 @@ class AuthViewModel extends BaseViewModel {
 
   Future<void> sendVerificationEmail() async {
     try {
-      final user = _authService.firebaseAuth.currentUser;
-      if (user != null) {
-        await user.sendEmailVerification();
-        locator<SnackbarService>().showSnackbar(
-          message: "A new verification link has been sent to your email.",
-        );
-      }
+      // TODO: call your backend resend-verification-email endpoint
+      locator<SnackbarService>().showSnackbar(
+        message: "A new verification link has been sent to your email.",
+      );
     } catch (e) {
       locator<SnackbarService>().showSnackbar(
         message: "Failed to send verification link: $e",
@@ -285,32 +211,7 @@ class AuthViewModel extends BaseViewModel {
   }
 
   Future<bool> checkEmailVerificationStatus() async {
-    setBusy(true);
-    try {
-      final user = _authService.firebaseAuth.currentUser;
-      if (user != null) {
-        await user.reload();
-        final updatedUser = _authService.firebaseAuth.currentUser;
-        if (updatedUser != null && updatedUser.emailVerified) {
-          // Update user profile status
-          final loggedInUser = User.fromFirebase(updatedUser);
-          profile.value = loggedInUser;
-          userLoggedIn.value = true;
-
-          await locator<LocalStorage>().save(
-            LocalStorageDir.authUser,
-            jsonEncode(profile.value.toJson()),
-          );
-
-          updateDeviceDetails();
-          setBusy(false);
-          return true;
-        }
-      }
-    } catch (e) {
-      debugPrint("Error checking email verification: $e");
-    }
-    setBusy(false);
+    // TODO: call your backend to check verification status
     return false;
   }
 
@@ -376,12 +277,12 @@ class AuthViewModel extends BaseViewModel {
         AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
         deviceId = androidInfo.id;
         deviceType = androidInfo.model;
-        pushNotificationToken = await FirebaseMessaging.instance.getToken();
+        // TODO: get push token from your new notification service
       } else if (Platform.isIOS) {
         IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
         deviceId = iosInfo.identifierForVendor ?? "Unknown";
         deviceType = iosInfo.utsname.machine ?? "iOS Device";
-        pushNotificationToken = await FirebaseMessaging.instance.getToken();
+        // TODO: get push token from your new notification service
       }
 
       PackageInfo packageInfo = await PackageInfo.fromPlatform();

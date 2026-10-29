@@ -20,6 +20,8 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterState extends State<RegisterScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _dobController = TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
+  bool _confirmObscure = true;
 
   // Dark field colour used across all inputs
   static const Color _fieldBg = Color(0xFF1A1226);
@@ -30,6 +32,7 @@ class _RegisterState extends State<RegisterScreen> {
   @override
   void dispose() {
     _dobController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -73,8 +76,6 @@ class _RegisterState extends State<RegisterScreen> {
                         const SizedBox(height: 16),
 
                         // ── Header row: back arrow + progress bar ──────────
-                        Row(
-                          children: [
                             GestureDetector(
                               onTap: () => widget.onSwitch(AuthType.login),
                               child: const Icon(
@@ -83,23 +84,6 @@ class _RegisterState extends State<RegisterScreen> {
                                 size: 22,
                               ),
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: LinearProgressIndicator(
-                                  value: 0.5,
-                                  minHeight: 5,
-                                  backgroundColor:
-                                      Colors.white.withValues(alpha: 0.2),
-                                  valueColor:
-                                      const AlwaysStoppedAnimation<Color>(
-                                          Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
 
                         const SizedBox(height: 40),
 
@@ -233,6 +217,35 @@ class _RegisterState extends State<RegisterScreen> {
                           },
                         ),
 
+                        // ── Confirm Password field ─────────────────────────
+                        const SizedBox(height: 12),
+                        StatefulBuilder(
+                          builder: (ctx, setInner) => _buildInputField(
+                            label: 'Confirm Password',
+                            hint: '••••••••',
+                            controller: _confirmPasswordController,
+                            obscure: _confirmObscure,
+                            suffixIcon: GestureDetector(
+                              onTap: () => setInner(() => _confirmObscure = !_confirmObscure),
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 14),
+                                child: Icon(
+                                  _confirmObscure
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color: _hintColor,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'Please confirm your password';
+                              if (v != model.password.text) return 'Passwords do not match';
+                              return null;
+                            },
+                          ),
+                        ),
+
                         const SizedBox(height: 36),
 
                         // ── Continue button ────────────────────────────────
@@ -248,7 +261,7 @@ class _RegisterState extends State<RegisterScreen> {
                                         fullName: model.firstname.text.trim(),
                                         dob: _dobController.text.trim(),
                                         onSuccess: () {
-                                          widget.onSwitch(AuthType.emailVerification);
+                                          locator<NavigationService>().clearStackAndShow(Routes.homeView);
                                         },
                                       );
                                     }

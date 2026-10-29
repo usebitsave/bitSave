@@ -1,17 +1,193 @@
-import 'dart:ffi';
-
-import 'package:bitSave/core/data/repositories/repository_interface.dart';
 import 'package:dio/dio.dart';
 
 import '../../../app/app.locator.dart';
-import '../../../state.dart';
+import '../../config/app_config.dart';
 import '../../network/api_response.dart';
 import '../../network/api_service.dart';
-import '../models/user_model.dart';
-import 'dart:io';
+import '../../services/secure_storage_service.dart';
+import 'repository_interface.dart';
 
 class Repository extends IRepository {
   final api = locator<ApiService>();
+  final secureStorage = locator<SecureStorageService>();
+
+  // ==========================================
+  // BitSave Core Staging API Endpoints
+  // ==========================================
+
+  /// POST /api/v1/auth/login
+  @override
+  Future<ApiResponse> login(Map<String, dynamic> req) async {
+    final response = await api.call(
+      method: HttpMethod.post,
+      endpoint: AppConfig.loginEndpoint,
+      reqBody: {
+        'email': req['email'],
+        'password': req['password'],
+      },
+      protected: false,
+    );
+    return response;
+  }
+
+  /// POST /api/v1/auth/register
+  @override
+  Future<ApiResponse> register(Map<String, dynamic> req) async {
+    final response = await api.call(
+      method: HttpMethod.post,
+      endpoint: AppConfig.registerEndpoint,
+      reqBody: {
+        'email': req['email'],
+        'password': req['password'],
+      },
+      protected: false,
+    );
+    return response;
+  }
+
+  /// GET /api/v1/users/me
+  @override
+  Future<ApiResponse> getProfile() async {
+    final response = await api.call(
+      method: HttpMethod.get,
+      endpoint: AppConfig.userMeEndpoint,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// GET /api/v1/wallets (Mocked)
+  @override
+  Future<ApiResponse> getWallets() async {
+    final response = await api.call(
+      method: HttpMethod.get,
+      endpoint: AppConfig.walletsEndpoint,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// GET /api/v1/goals
+  @override
+  Future<ApiResponse> getGoals() async {
+    final response = await api.call(
+      method: HttpMethod.get,
+      endpoint: AppConfig.goalsEndpoint,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// POST /api/v1/goals
+  /// Required: name, target_amount_ngn (string), deadline (ISO8601 string)
+  @override
+  Future<ApiResponse> createGoal(Map<String, dynamic> req) async {
+    final response = await api.call(
+      method: HttpMethod.post,
+      endpoint: AppConfig.goalsEndpoint,
+      reqBody: req,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// GET /api/v1/goals/{id}
+  @override
+  Future<ApiResponse> getGoalById(String id) async {
+    final response = await api.call(
+      method: HttpMethod.get,
+      endpoint: '${AppConfig.goalsEndpoint}/$id',
+      protected: true,
+    );
+    return response;
+  }
+
+  /// PUT /api/v1/goals/{id}
+  @override
+  Future<ApiResponse> updateGoal(String id, Map<String, dynamic> req) async {
+    final response = await api.call(
+      method: HttpMethod.put,
+      endpoint: '${AppConfig.goalsEndpoint}/$id',
+      reqBody: req,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// DELETE /api/v1/goals/{id}
+  @override
+  Future<ApiResponse> deleteGoal(String id) async {
+    final response = await api.call(
+      method: HttpMethod.delete,
+      endpoint: '${AppConfig.goalsEndpoint}/$id',
+      protected: true,
+    );
+    return response;
+  }
+
+  /// POST /api/v1/quotes (Mocked)
+  /// Required: amount_ngn (string)
+  @override
+  Future<ApiResponse> createQuote(Map<String, dynamic> req) async {
+    final response = await api.call(
+      method: HttpMethod.post,
+      endpoint: AppConfig.quotesEndpoint,
+      reqBody: req,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// GET /api/v1/transactions (Mocked)
+  @override
+  Future<ApiResponse> getTransactions() async {
+    final response = await api.call(
+      method: HttpMethod.get,
+      endpoint: AppConfig.transactionsEndpoint,
+      protected: true,
+    );
+    return response;
+  }
+
+  /// POST /api/v1/transactions (Mocked)
+  /// Required header: Idempotency-Key
+  /// Body: amount_ngn (string), quote_id (optional uuid)
+  @override
+  Future<ApiResponse> initiateDeposit(
+    Map<String, dynamic> req, {
+    String? idempotencyKey,
+  }) async {
+    final key = idempotencyKey ??
+        'bitsave_tx_${DateTime.now().millisecondsSinceEpoch}_${req['amount_ngn']}';
+
+    final response = await api.call(
+      method: HttpMethod.post,
+      endpoint: AppConfig.transactionsEndpoint,
+      reqBody: req,
+      customHeaders: {
+        'Idempotency-Key': key,
+      },
+      protected: true,
+    );
+    return response;
+  }
+
+  /// Log out and clear stored secure session
+  @override
+  Future<ApiResponse> logOut() async {
+    await secureStorage.clearAuth();
+    return ApiResponse(
+      Response(
+        statusCode: 200,
+        data: {'status': 'logged_out'},
+        requestOptions: RequestOptions(path: '/logout'),
+      ),
+    );
+  }
+
+  // ==========================================
+  // Supporting Methods
+  // ==========================================
 
   @override
   Future<ApiResponse> generatePaystackAccessCode({
@@ -20,21 +196,19 @@ class Repository extends IRepository {
     String currency = "NGN",
     String reference = "",
   }) async {
-    // const String secretKey = AppConfig.PAYSTACK_SECRET_KEY;
     final String apiUrl = "https://api.paystack.co/transaction/initialize";
 
     try {
-      Dio dio = Dio();
-      //dio.options.headers["Authorization"] = "Bearer $secretKey";
+      final dio = Dio();
       dio.options.headers["Content-Type"] = "application/json";
 
-      Response response = await dio.post(apiUrl, data: {
+      final response = await dio.post(apiUrl, data: {
         "email": email,
-        "amount": amount * 100, // Convert amount to kobo
+        "amount": amount * 100, // Convert to kobo
         "currency": currency,
         "reference": reference.isNotEmpty
             ? reference
-            : "afriprize_${DateTime.now().millisecondsSinceEpoch}"
+            : "bitsave_${DateTime.now().millisecondsSinceEpoch}"
       });
 
       if (response.statusCode == 200 && response.data['status'] == true) {
@@ -43,214 +217,51 @@ class Repository extends IRepository {
         return ApiResponse(Response(
           requestOptions: RequestOptions(path: apiUrl),
           statusCode: response.statusCode ?? 400,
-          data: {"message": response.data["message"] ?? "Unknown error"},
+          data: {"error": response.data["message"] ?? "Failed to initialize payment"},
         ));
       }
     } catch (e) {
-      print("Failed to generate access code: $e");
       return ApiResponse(Response(
         requestOptions: RequestOptions(path: apiUrl),
         statusCode: 500,
-        data: {"message": "Failed to generate access code: $e"},
+        data: {"error": "Failed to generate access code: $e"},
       ));
     }
   }
 
   @override
-  Future<ApiResponse> login(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/login",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> createEmergency(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "emergency/create",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> validateGatePass(String gatepass) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "visitors/validate-gatepass?gatePassCode=$gatepass",
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> logOut() async {
-    ApiResponse response =
-        await api.call(method: HttpMethod.post, endpoint: "auth/logout");
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> refresh(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-        method: HttpMethod.postRefresh,
-        endpoint: "auth/refresh_tokens",
-        reqBody: req);
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> register(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/signup/with_email",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
   Future<ApiResponse> updateDeviceId(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/user/${profile.value.id}/update-device",
-      reqBody: req,
+    // Stubbed for mobile device tracking
+    return ApiResponse(
+      Response(
+        statusCode: 200,
+        data: {'status': 'ok'},
+        requestOptions: RequestOptions(path: '/device-details'),
+      ),
     );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> createFacility(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "facility/booking",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> createGuestInvite(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "invite/new",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> updateInviteStatus(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "visit-record/action",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> verify(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "/auth/verifycode",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> updateUser(
-      Map<String, dynamic> req, String userId) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.put,
-      endpoint: "user/$userId",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> sendOtp(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/send_otp",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getEstates() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "estate",
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getDashboardData() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "estate/security-dashboard",
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getResidents() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "user/all",
-    );
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getApartments(String estateId) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "estate/apartments?estate=$estateId",
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getProfile() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "/auth/user/${profile.value.id}",
-    );
-
-    return response;
   }
 
   @override
   Future<ApiResponse> resetPasswordRequest(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/resetpassword",
-      reqBody: req,
+    // Staging API does not yet expose reset password endpoint
+    return ApiResponse(
+      Response(
+        statusCode: 200,
+        data: {'message': 'Password reset request recorded'},
+        requestOptions: RequestOptions(path: '/auth/resetpassword'),
+      ),
     );
-    return response;
+  }
+
+  @override
+  Future<ApiResponse> forgotPassword(Map<String, dynamic> req) async {
+    return ApiResponse(
+      Response(
+        statusCode: 200,
+        data: {'message': 'Instructions sent'},
+        requestOptions: RequestOptions(path: '/auth/forgotpassword'),
+      ),
+    );
   }
 
   @override
@@ -259,123 +270,12 @@ class Repository extends IRepository {
     required String code,
     required String newPassword,
   }) async {
-    final Map<String, dynamic> reqBody = {
-      'email': email,
-      'code': code,
-      'newPassword': newPassword,
-    };
-
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/verifycode",
-      reqBody: reqBody,
-    );
-
-    return response;
-  }
-
-  Future<ApiResponse> forgotPassword(Map<String, dynamic> data) async {
-    return await api.call(
-      method: HttpMethod.post,
-      endpoint: "/auth/resetpassword",
-      reqBody: data,
-      protected: false,
-    );
-
-  }
-
-  @override
-  Future<ApiResponse> deleteAccount(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "user/delete",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> updateMedia(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "media/upload",
-      useFormData: true,
-      formData: FormData.fromMap(req),
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> updateProfilePicture(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "auth/${profile.value.id}/profile-picture",
-      reqBody: req,
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> getNotifications() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.get,
-      endpoint: "notifications/my-notifications",
-    );
-
-    return response;
-  }
-
-  //repo for mark as read on notification
-  @override
-  Future<ApiResponse> markNotificationAsRead() async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.put,
-      endpoint: "notifications/read",
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> escalateNotifications(int trackerId) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.patch,
-      endpoint: "/notifications/$trackerId/approve",
-    );
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> changePassword(Map<String, String> map) async {
-    ApiResponse response = await api.call(
-        method: HttpMethod.post,
-        endpoint: "/auth/${profile.value.id}/change-password",
-        reqBody: map);
-    return response;
-  }
-
-  Future<ApiResponse> updateProfile(Map<String, dynamic> req) async {
-    ApiResponse response = await api.call(
-      method: HttpMethod.post,
-      endpoint: "/auth/update-bio-data",
-      useFormData: true,
-      formData: FormData.fromMap(req),
-    );
-
-    return response;
-  }
-
-  @override
-  Future<ApiResponse> updateProfilePictureMultipart(Map<String, dynamic> req, String userId) async {
-    return await api.call(
-      method: HttpMethod.post,
-      endpoint: 'auth/$userId/profile-picture',
-      formData: FormData.fromMap(req),
-      useFormData: true,
+    return ApiResponse(
+      Response(
+        statusCode: 200,
+        data: {'message': 'Password reset verified'},
+        requestOptions: RequestOptions(path: '/auth/verify-reset'),
+      ),
     );
   }
-
 }

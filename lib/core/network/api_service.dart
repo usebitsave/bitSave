@@ -3,205 +3,189 @@ import 'package:flutter/foundation.dart';
 
 import '../../app/app.locator.dart';
 import '../../app/app.logger.dart';
-import '../utils/local_store_dir.dart';
-import '../utils/local_stotage.dart';
+import '../config/app_config.dart';
+import '../services/secure_storage_service.dart';
 import 'api_response.dart';
 import 'interceptors.dart';
-
-
-/// @author Amrah sali
-/// email: saliamrah300@gmail.com
-/// sept, 2025
-///
-///
-
 
 enum HttpMethod { get, post, postRefresh, patch, put, delete }
 
 class ApiService {
   final log = getLogger('ApiService');
 
-  final Dio dio;
+  late final Dio dio;
 
-  ApiService() : dio = _dio();
+  ApiService() {
+    dio = _createDio();
+  }
+
+  static const int _timeout = 45000;
 
   static final Map<String, String> _requestHeaders = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    //'User-Agent': 'Estate360_${Platform.isIOS ? 'IOS' : 'Android'}_${AppConfig.AppType}',
   };
 
-  static const int _timeout = 50000;
+  Dio _createDio() {
+    final options = BaseOptions(
+      baseUrl: AppConfig.baseUrl,
+      headers: _requestHeaders,
+      connectTimeout: _timeout,
+      receiveTimeout: _timeout,
+      sendTimeout: _timeout,
+    );
 
-  static final _options = BaseOptions(
-   // baseUrl: AppConfig.baseUrl,
-    headers: _requestHeaders,
-    connectTimeout: _timeout,
-    receiveTimeout: _timeout,
-  );
-
-  static Dio _dio() {
-    Dio dio;
+    final dioInstance = Dio(options);
     if (!kReleaseMode) {
-      dio = Dio(_options)
-        ..interceptors.add(logInterceptor)
-        ..interceptors.add(requestInterceptors);
-    } else {
-      dio = Dio(_options)..interceptors.add(requestInterceptors);
+      dioInstance.interceptors.add(logInterceptor);
     }
-    return dio;
+    dioInstance.interceptors.add(requestInterceptors);
+    return dioInstance;
   }
 
-  // Dio _dio() {
-  //   Dio dio;
-  //   if (!kReleaseMode) {
-  //     dio = Dio(_options)
-  //       ..interceptors.add(logInterceptor)
-  //       ..interceptors.add(requestInterceptors);
-  //   } else {
-  //     dio = Dio(_options)..interceptors.add(requestInterceptors);
-  //   }
-  //   return dio;
-  // }
+  /// Ensure baseUrl matches current AppConfig
+  void updateBaseUrl() {
+    dio.options.baseUrl = AppConfig.baseUrl;
+  }
 
   Future<ApiResponse> call({
     required HttpMethod method,
     required String endpoint,
     Map<String, dynamic>? reqBody,
     Map<String, dynamic>? reqParams,
+    Map<String, dynamic>? customHeaders,
     FormData? formData,
     bool protected = true,
     bool useFormData = false,
   }) async {
+    // Keep baseUrl synchronized with AppConfig
+    dio.options.baseUrl = AppConfig.baseUrl;
+
+    // Normalize endpoint slashes
+    final formattedEndpoint = endpoint.startsWith('http')
+        ? endpoint
+        : (endpoint.startsWith('/') ? endpoint : '/$endpoint');
+
+    final headers = <String, dynamic>{
+      ..._requestHeaders,
+      if (customHeaders != null) ...customHeaders,
+    };
+
+    if (protected) {
+      final token = await _getToken();
+      if (token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+    }
+
+    final options = Options(headers: headers);
+
     try {
+      Response response;
       switch (method) {
         case HttpMethod.post:
-          Response response = await dio.post(
-            endpoint,
-            queryParameters: reqParams,
-            data: useFormData ? formData : reqBody,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getToken()}"}),
-          );
-          return ApiResponse(response);
-
-
         case HttpMethod.postRefresh:
-          Response response = await dio.post(
-            endpoint,
+          response = await dio.post(
+            formattedEndpoint,
             queryParameters: reqParams,
             data: useFormData ? formData : reqBody,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getRefreshToken()}"}),
+            options: options,
           );
-          return ApiResponse(response);
+          break;
 
         case HttpMethod.get:
-          Response response = await dio.get(
-            endpoint,
+          response = await dio.get(
+            formattedEndpoint,
             queryParameters: reqParams,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getToken()}"}),
+            options: options,
           );
-          return ApiResponse(response);
-        case HttpMethod.patch:
-          Response response = await dio.patch(
-            endpoint,
-            data: useFormData ? formData : reqBody,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getToken()}"}),
-          );
-          return ApiResponse(response);
-        case HttpMethod.put:
-          Response response = await dio.put(
-            endpoint,
-            data: useFormData ? formData : reqBody,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getToken()}"}),
-          );
-          return ApiResponse(response);
-        case HttpMethod.delete:
-          Response response = await dio.delete(
-            endpoint,
-            data: useFormData ? formData : reqBody,
-            options: Options(
-                headers: !protected
-                    ? {}
-                    : {"Authorization": "Bearer ${await _getToken()}"}),
-          );
-          return ApiResponse(response);
+          break;
 
+        case HttpMethod.patch:
+          response = await dio.patch(
+            formattedEndpoint,
+            data: useFormData ? formData : reqBody,
+            options: options,
+          );
+          break;
+
+        case HttpMethod.put:
+          response = await dio.put(
+            formattedEndpoint,
+            data: useFormData ? formData : reqBody,
+            options: options,
+          );
+          break;
+
+        case HttpMethod.delete:
+          response = await dio.delete(
+            formattedEndpoint,
+            data: useFormData ? formData : reqBody,
+            options: options,
+          );
+          break;
       }
+
+      return ApiResponse(response);
     } on DioError catch (e) {
-      log.e(e.message);
-      if (e.type == DioErrorType.connectTimeout) {
-        return ApiResponse(
-          Response(
-            statusCode: 504,
-            data: "Request timeout",
-            requestOptions: RequestOptions(path: ''),
-          ),
-        );
-      } else if (e.type == DioErrorType.other) {
-        return ApiResponse(
-          Response(
-            statusCode: 101,
-            data: "Network is unreachable",
-            requestOptions: RequestOptions(path: ''),
-          ),
-        );
-      } else if (e.type == DioErrorType.receiveTimeout) {
-        return ApiResponse(
-          Response(
-            statusCode: 504,
-            data: "Receive timeout",
-            requestOptions: RequestOptions(path: ''),
-          ),
-        );
+      log.e("DioError on $formattedEndpoint: ${e.message}");
+
+      if (e.response != null) {
+        return ApiResponse(e.response!);
       }
-      return ApiResponse(e.response!);
+
+      String message;
+      int statusCode;
+      switch (e.type) {
+        case DioErrorType.connectTimeout:
+          statusCode = 504;
+          message = "Connection timeout";
+          break;
+        case DioErrorType.receiveTimeout:
+          statusCode = 504;
+          message = "Receive timeout";
+          break;
+        case DioErrorType.sendTimeout:
+          statusCode = 504;
+          message = "Send timeout";
+          break;
+        case DioErrorType.cancel:
+          statusCode = 499;
+          message = "Request was cancelled";
+          break;
+        default:
+          statusCode = 503;
+          message = "Unable to connect to server. Please check your network.";
+          break;
+      }
+
+      return ApiResponse(
+        Response(
+          statusCode: statusCode,
+          data: {"error": message},
+          requestOptions: e.requestOptions,
+        ),
+      );
+    } catch (e) {
+      log.e("Unexpected error calling $formattedEndpoint: $e");
+      return ApiResponse(
+        Response(
+          statusCode: 500,
+          data: {"error": e.toString()},
+          requestOptions: RequestOptions(path: formattedEndpoint),
+        ),
+      );
     }
   }
 
   Future<String> _getToken() async {
-    final localStorage = locator<LocalStorage>();
-    String? token = await localStorage.fetch(LocalStorageDir.authToken);
-    return token ?? "";
+    try {
+      final secureStorage = locator<SecureStorageService>();
+      final token = await secureStorage.getToken();
+      return token ?? "";
+    } catch (e) {
+      log.w("Failed to read token from secure storage: $e");
+      return "";
+    }
   }
-
-  Future<String> _getRefreshToken() async {
-    final localStorage = locator<LocalStorage>();
-    String? token = await localStorage.fetch(LocalStorageDir.authRefreshToken);
-    return token ?? "";
-  }
-
-  // Future<ApiResponse> getFlutterWaveExchangeRate({
-  //   required double amount,
-  //   required String destinationCurrency,
-  //   required String sourceCurrency,
-  // }) async {
-  //  // String endpoint = '${AppConfig.flutterWaveBaseUrl}/transfers/rates';
-  //   Map<String, dynamic> reqParams = {
-  //     'amount': amount.toString(),
-  //     'destination_currency': destinationCurrency,
-  //     'source_currency': sourceCurrency,
-  //   };
-  //
-  //   return await call(
-  //     method: HttpMethod.get,
-  //     endpoint: endpoint,
-  //     reqParams: reqParams,
-  //     // protected: true, // Assuming the API key is required for authentication
-  //   );
-  // }
 }

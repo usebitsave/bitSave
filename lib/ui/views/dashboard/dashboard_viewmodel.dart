@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/cupertino.dart';
 import 'package:stacked/stacked.dart';
 import '../../../app/app.logger.dart';
 import '../../../core/data/models/dahsboard_model.dart';
@@ -16,8 +15,9 @@ import 'package:dio/dio.dart';
 import '../../../state.dart';
 import '../../../core/network/paystack_service.dart';
 import '../../../services/authentication_service.dart';
+import '../../../services/bitcoin_price_service.dart';
+import '../../../services/wallet_service.dart';
 import '../../../app/app.locator.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/lock_plan_model.dart';
 
 void prettyPrintJson(dynamic object, {String? tag}) {
@@ -50,7 +50,7 @@ class Transaction {
       'amount': amount,
       'time': time,
       'date': date,
-      'timestamp': FieldValue.serverTimestamp(),
+      'timestamp': DateTime.now().toIso8601String(),
     };
   }
 
@@ -80,15 +80,16 @@ class DashboardViewModel extends BaseViewModel {
   DashboardModel? dashboardData;
   Timer? _autoRefreshTimer;
   final MavapayService _mavapayService = MavapayService();
+  final _bitcoinPriceService = locator<BitcoinPriceService>();
+  final _walletService = locator<WalletService>();
+  final _authService = locator<AuthenticationService>();
 
   double _totalBalance = 0.0;
-  double _cryptoBalance = 72.80;
+  double _cryptoBalance = 0.0;
   double _cryptoBalanceInSats = 0.0;
-  double _todayChange = 20.50;
+  double _todayChange = 0.0;
   List<Transaction> _transactions = [];
   List<TodoItem> _todos = [];
-
-
 
   void loadProfile(User userFromApi) {
     profile.value = userFromApi;   // Save to global state
@@ -100,17 +101,15 @@ class DashboardViewModel extends BaseViewModel {
     notifyListeners();
   }
 
-
   // Mavapay data
   MavapayBalance? _mavapayBalance;
   MavapayExchangeRate? _exchangeRate;
-  String _userId = "user_123";
+  String get _userId => _authService.apiProfile?.id ?? _authService.currentUser?.uid ?? '';
 
   // Notifications and updates
   List<NotificationModel> notifications = [];
   List<UpdateModel> _updates = [];
   int selectedIndex = 0;
-  bool _isDataLoaded = false;
 
   // Getters for financial data
   double get totalBalance => _totalBalance;
@@ -125,48 +124,80 @@ class DashboardViewModel extends BaseViewModel {
 
   DashboardViewModel() {
     _initializeFinancialData();
-    _initializeCryptoBalance();
     _loadBalanceFromAuth();
     _fetchTransactions();
+    _listenToPriceChanges();
+  }
+
+  void _listenToPriceChanges() {
+    _todayChange = _bitcoinPriceService.change24h.value;
+    _bitcoinPriceService.change24h.addListener(() {
+      _todayChange = _bitcoinPriceService.change24h.value;
+      notifyListeners();
+    });
   }
 
   void _loadBalanceFromAuth() {
-    final authService = locator<AuthenticationService>();
-    _totalBalance = authService.currentUser?.walletBalanceNGN ?? 0.0;
+    _totalBalance = _authService.currentUser?.walletBalanceNGN ?? 0.0;
   }
 
   Future<void> _fetchTransactions() async {
     try {
-      final authService = locator<AuthenticationService>();
-      final user = authService.firebaseAuth.currentUser;
-      if (user != null) {
-        final querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('transactions')
-            .orderBy('timestamp', descending: true)
-            .get();
+      final apiTxns = await _walletService.fetchTransactions();
+      if (apiTxns.isNotEmpty) {
+        int totalSats = 0;
+        for (final t in apiTxns) {
+          final isDebit = t.type.toUpperCase() == 'WITHDRAWAL';
+          if (t.status.toUpperCase() != 'FAILED' && t.status.toUpperCase() != 'CANCELLED') {
+            if (isDebit) {
+              totalSats -= t.btcAmountSats;
+            } else {
+              totalSats += t.btcAmountSats;
+            }
+          }
+        }
+        _cryptoBalanceInSats = totalSats > 0 ? totalSats.toDouble() : 0.0;
+        _cryptoBalance = _cryptoBalanceInSats / 100000000.0;
 
-        _transactions = querySnapshot.docs
-            .map((doc) => Transaction.fromJson(doc.data()))
-            .toList();
-        notifyListeners();
+        _transactions = apiTxns.map((t) {
+          final amount = double.tryParse(t.fiatAmount) ?? 0.0;
+          final isDebit = t.type == 'WITHDRAWAL' || t.type == 'SAVINGS';
+          return Transaction(
+            recipient: t.type == 'DEPOSIT' ? 'Deposit' : (t.type.isEmpty ? 'Savings' : t.type),
+            amount: isDebit ? -amount : amount,
+            time: t.createdAt != null
+                ? '${t.createdAt!.hour.toString().padLeft(2,'0')}:${t.createdAt!.minute.toString().padLeft(2,'0')}'
+                : '',
+            date: t.createdAt != null
+                ? _relativeDate(t.createdAt!)
+                : '',
+          );
+        }).toList();
+      } else {
+        _cryptoBalance = 0.0;
+        _cryptoBalanceInSats = 0.0;
       }
+      _todayChange = _bitcoinPriceService.change24h.value;
+      notifyListeners();
     } catch (e) {
       log.e('Error fetching transactions: $e');
     }
   }
 
+  String _relativeDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    return '${dt.day.toString().padLeft(2,'0')}/${dt.month.toString().padLeft(2,'0')}/${dt.year}';
+  }
+
   Future<void> _saveTransactionToFirestore(Transaction tx) async {
     try {
       final authService = locator<AuthenticationService>();
-      final user = authService.firebaseAuth.currentUser;
+      final user = authService.currentUser;
       if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('transactions')
-            .add(tx.toJson());
+        // TODO: Save transaction to your backend API
       }
     } catch (e) {
       log.e('Error saving transaction: $e');
@@ -274,6 +305,7 @@ class DashboardViewModel extends BaseViewModel {
       if (initData != null && initData['authorization_url'] != null) {
         final url = Uri.parse(initData['authorization_url']);
         final reference = initData['reference'];
+        log.i('Paystack initialized with reference: $reference');
 
         if (await canLaunchUrl(url)) {
           // Launch the payment page
@@ -325,7 +357,7 @@ class DashboardViewModel extends BaseViewModel {
     setBusy(true);
     try {
       final authService = locator<AuthenticationService>();
-      final user = authService.firebaseAuth.currentUser;
+      final user = authService.currentUser;
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You must be logged in to save.')),
@@ -395,13 +427,8 @@ class DashboardViewModel extends BaseViewModel {
         satsAmount = CurrencyConverter.nairaToSats(nairaAmount, btcPriceNGN).round();
       }
 
-      // Deduct from wallet in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'walletBalanceNGN': FieldValue.increment(-nairaAmount),
-      });
-
-      // Create lock plan in Firestore
-      final lockId = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('savings').doc().id;
+      // Store lock plan in vault
+      final lockId = DateTime.now().millisecondsSinceEpoch.toString();
       final lockPlan = LockPlanModel(
         lockId: lockId,
         userId: user.uid,
@@ -412,13 +439,7 @@ class DashboardViewModel extends BaseViewModel {
         targetMaturityDate: DateTime.now().add(Duration(days: lockMonths * 30)),
         isMatured: false,
       );
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('savings')
-          .doc(lockId)
-          .set(lockPlan.toJson());
+      log.i('Created lock plan: ${lockPlan.lockId} for ${lockPlan.satsAllocated} sats');
 
       // Update local balance
       _totalBalance -= nairaAmount;
@@ -434,7 +455,7 @@ class DashboardViewModel extends BaseViewModel {
       await _saveTransactionToFirestore(tx);
 
       // Refresh auth user cache
-      await authService.fetchUserProfile(user.uid);
+      await authService.fetchUserProfile();
 
       notifyListeners();
 
@@ -518,9 +539,12 @@ class DashboardViewModel extends BaseViewModel {
   Future<void> refreshData() async {
     setBusy(true);
     final authService = locator<AuthenticationService>();
-    if (authService.firebaseAuth.currentUser != null) {
-      await authService.fetchUserProfile(authService.firebaseAuth.currentUser!.uid);
+    final walletService = locator<WalletService>();
+    if (authService.currentUser != null) {
+      await authService.fetchUserProfile();
       _totalBalance = authService.currentUser?.walletBalanceNGN ?? 0.0;
+      // Fetch wallet info (mocked) and real transactions
+      await walletService.fetchWallet();
       await _fetchTransactions();
     }
     notifyListeners();

@@ -1,16 +1,9 @@
-import 'package:bitSave/ui/common/ui_helpers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stacked/stacked.dart';
 import '../../common/app_colors.dart';
-import '../../dialogs/bottom_sheets/emergency_bottom_sheet.dart';
 import 'home_viewmodel.dart';
 import '../../../state.dart';
-import '../../../app/app.locator.dart';
-import '../../../core/utils/local_stotage.dart';
-import '../../../core/utils/local_store_dir.dart';
 
 
 class HomeView extends StackedView<HomeViewModel> {
@@ -70,9 +63,9 @@ class HomeView extends StackedView<HomeViewModel> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             _buildNavItem(Icons.home_filled, 'Home', 0, viewModel),
-            _buildNavItem(Icons.account_balance_wallet_rounded, 'Savings', 1, viewModel),
-            _buildNavItem(Icons.bar_chart_rounded, 'Insights', 2, viewModel),
-            _buildNavItem(Icons.card_giftcard_rounded, 'Invite', 3, viewModel),
+            _buildNavItem(Icons.savings_rounded, 'Goals', 1, viewModel),
+            _buildNavItem(Icons.receipt_long_rounded, 'Activity', 2, viewModel),
+            _buildNavItem(Icons.person_rounded, 'Profile', 3, viewModel),
           ],
         ),
       ),

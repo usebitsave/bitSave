@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:stacked/stacked.dart';
-import 'package:stacked_services/stacked_services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:dio/dio.dart';
 import '../../../app/app.locator.dart';
 import '../../../app/app.logger.dart';
 import '../../../core/data/models/notification_model.dart';
-import '../../../core/network/interceptors.dart';
 import '../../../core/network/mavapay_service.dart';
 import '../../../services/authentication_service.dart';
 import '../../../services/vault_service.dart';
@@ -27,12 +23,18 @@ class ReportsViewModel extends BaseViewModel {
     notifyListeners();
   }
 
+  final List<LockPlanModel> _savingsPlans = [];
+  List<LockPlanModel> get savingsPlans => _savingsPlans;
+
+  int get totalSavingsSats =>
+      _savingsPlans.fold(0, (sum, p) => sum + p.satsAllocated);
+
   /// Save Naira to Bitcoin (Lock Plan) from recommendations/actions
   Future<void> saveToBitcoin(double nairaAmount, int lockMonths, BuildContext context) async {
     setBusy(true);
     try {
       final authService = locator<AuthenticationService>();
-      final user = authService.firebaseAuth.currentUser;
+      final user = authService.currentUser;
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You must be logged in to save.')),
@@ -102,12 +104,8 @@ class ReportsViewModel extends BaseViewModel {
         satsAmount = CurrencyConverter.nairaToSats(nairaAmount, btcPriceNGN).round();
       }
 
-      // Deduct from wallet in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'walletBalanceNGN': FieldValue.increment(-nairaAmount),
-      });
-
-      final lockId = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('savings').doc().id;
+      // TODO: Replace with backend API call to deduct wallet balance and save lock plan
+      final lockId = DateTime.now().millisecondsSinceEpoch.toString();
       final lockPlan = LockPlanModel(
         lockId: lockId,
         userId: user.uid,
@@ -119,15 +117,8 @@ class ReportsViewModel extends BaseViewModel {
         isMatured: false,
       );
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('savings')
-          .doc(lockId)
-          .set(lockPlan.toJson());
-
-      // Refresh auth user cache
-      await authService.fetchUserProfile(user.uid);
+      _savingsPlans.add(lockPlan);
+      await authService.fetchUserProfile();
 
       notifyListeners();
 
@@ -160,7 +151,7 @@ class ReportsViewModel extends BaseViewModel {
     setBusy(true);
     try {
       final authService = locator<AuthenticationService>();
-      final user = authService.firebaseAuth.currentUser;
+      final user = authService.currentUser;
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You must be logged in to withdraw.')),
@@ -185,25 +176,12 @@ class ReportsViewModel extends BaseViewModel {
           bankCode: bankCode,
         );
       } catch (e) {
-        // Fallback for demo/offline: log and allow flow to proceed
-        log.w('Cloud Function call failed: $e. Proceeding with database withdrawal simulation.');
+        log.w('Withdrawal request failed: $e. Proceeding with simulation.');
       }
 
-      // Credit Naira back to user's wallet
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'walletBalanceNGN': FieldValue.increment(plan.fiatAmountNGN),
-      });
-
-      // Remove the plan from active savings
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('savings')
-          .doc(plan.lockId)
-          .delete();
-
-      // Refresh auth user cache
-      await authService.fetchUserProfile(user.uid);
+      // TODO: Replace with backend API call to credit wallet and remove savings plan
+      _savingsPlans.removeWhere((p) => p.lockId == plan.lockId);
+      await authService.fetchUserProfile();
 
       notifyListeners();
 
@@ -224,8 +202,8 @@ class ReportsViewModel extends BaseViewModel {
     }
   }
   final TextEditingController searchController = TextEditingController();
-  double _todayChange = 20.50;
-  double _cryptoBalance = 72.80;
+  double _todayChange = 0.0;
+  double _cryptoBalance = 0.0;
   double _cryptoBalanceInSats = 0.0;
 
   int _selectedAccountType = 0;

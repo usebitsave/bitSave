@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart' as fb;
+
 import 'package:intl_phone_field/countries.dart';
 import 'media_model.dart';
 
@@ -120,33 +120,6 @@ class User {
     };
   }
 
-  /// ✅ New factory for FirebaseAuth.User
-  factory User.fromFirebase(fb.User firebaseUser) {
-    String? displayName = firebaseUser.displayName;
-    String? first;
-    String? last;
-
-    if (displayName != null && displayName.trim().isNotEmpty) {
-      final parts = displayName.trim().split(" ");
-      first = parts.isNotEmpty ? parts.first : null;
-      last = parts.length > 1 ? parts.sublist(1).join(" ") : null;
-    } else {
-      // fallback → use email prefix as first name
-      first = firebaseUser.email?.split("@").first ?? "Guest";
-    }
-
-    return User(
-      id: null, // backend id not available here
-      username: firebaseUser.email,
-      email: firebaseUser.email,
-      firstName: first,
-      lastName: last,
-      phone: firebaseUser.phoneNumber,
-      emailVerified: firebaseUser.emailVerified,
-      status: UserStatus.ACTIVE,
-      approvalStatus: ApprovalStatus.APPROVED,
-    );
-  }
 
   /// Convenient getter for full name
   String get fullName => "${firstName ?? ''} ${lastName ?? ''}".trim();

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stacked/stacked.dart';
-import '../../common/app_colors.dart';
-import '../../common/ui_helpers.dart';
 import 'onboarding_viewmodel.dart';
 
 class OnboardingView extends StackedView<OnboardingViewModel> {
@@ -16,37 +14,56 @@ class OnboardingView extends StackedView<OnboardingViewModel> {
   ) {
     return Scaffold(
       body: Container(
-        width: screenWidth(context),
-        height: screenHeight(context),
-        decoration: BoxDecoration(
-          gradient: kcAppBackgroundGradient,
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: [0.0, 0.45, 0.85],
+            colors: [
+              Color(0xFF2C1977),
+              Color(0xFF130B30),
+              Color(0xFF06030A),
+            ],
+          ),
         ),
         child: SafeArea(
           child: Column(
             children: [
               Expanded(
                 child: PageView(
+                  controller: viewModel.pageController,
                   onPageChanged: viewModel.setIndex,
                   children: const [
-                    OnboardingPage(
-                      smallTitle: "Welcome to bitSave",
-                      largeTitle: "Add, Save and\nEarn SATS",
+                    OnboardingPageItem(
+                      imagePath: 'assets/images/save_smarter_btc.png',
+                      normalText: "Save smarter with ",
+                      highlightedText: "Bitcoin.",
+                      subtitle:
+                          "Turn your local currency into Bitcoin and build your savings for the long term.",
                     ),
-                    OnboardingPage(
-                      smallTitle: "Secure Savings",
-                      largeTitle: "Lock your funds\nand build wealth",
+                    OnboardingPageItem(
+                      imagePath: 'assets/images/sats_growth.png',
+                      normalText: "Save Today.\n",
+                      highlightedText: "Grow for Tomorrow.",
+                      subtitle:
+                          "Turn your local currency into Bitcoin and build your savings for the long term.",
                     ),
-                    OnboardingPage(
-                      smallTitle: "Simple Tracking",
-                      largeTitle: "Monitor your\nportfolio growth",
+                    OnboardingPageItem(
+                      imagePath: 'assets/images/save_smarter_btc.png',
+                      normalText: "Lock & Build\n",
+                      highlightedText: "Your Wealth.",
+                      subtitle:
+                          "Secure your assets with confidence and track your portfolio growth effortlessly.",
                     ),
                   ],
                 ),
               ),
               _buildPageIndicator(viewModel.currentIndex),
-              verticalSpaceMedium,
+              const SizedBox(height: 32),
               _buildActionButtons(viewModel),
-              verticalSpaceLarge,
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -58,14 +75,15 @@ class OnboardingView extends StackedView<OnboardingViewModel> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(3, (index) {
+        final isActive = currentIndex == index;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           margin: const EdgeInsets.symmetric(horizontal: 4),
-          height: 8,
-          width: currentIndex == index ? 24 : 8,
+          height: 6,
+          width: isActive ? 28 : 6,
           decoration: BoxDecoration(
-            color: currentIndex == index ? kcPrimaryColor : Colors.white.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(4),
+            color: isActive ? const Color(0xFF7D5BFF) : Colors.white.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(3),
           ),
         );
       }),
@@ -73,6 +91,7 @@ class OnboardingView extends StackedView<OnboardingViewModel> {
   }
 
   Widget _buildActionButtons(OnboardingViewModel viewModel) {
+    final isLastPage = viewModel.currentIndex == 2;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
@@ -81,41 +100,41 @@ class OnboardingView extends StackedView<OnboardingViewModel> {
             width: double.infinity,
             height: 56,
             child: ElevatedButton(
-              onPressed: viewModel.navigateToSignup,
+              onPressed: isLastPage ? viewModel.navigateToSignup : viewModel.nextPage,
               style: ElevatedButton.styleFrom(
-                backgroundColor: kcPrimaryColor,
+                backgroundColor: const Color(0xFF4C32AD),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
                 elevation: 0,
               ),
               child: Text(
-                'Sign up',
+                isLastPage ? 'Get Started' : 'Next',
                 style: GoogleFonts.redHatDisplay(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
             ),
           ),
-          verticalSpaceSmall,
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton(
-              onPressed: viewModel.navigateToLogin,
+              onPressed: isLastPage ? viewModel.navigateToLogin : viewModel.skip,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.15),
+                backgroundColor: const Color(0xFF2C2738),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
                 elevation: 0,
               ),
               child: Text(
-                'Log in',
+                isLastPage ? 'Log In' : 'Skip',
                 style: GoogleFonts.redHatDisplay(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
@@ -128,273 +147,73 @@ class OnboardingView extends StackedView<OnboardingViewModel> {
   }
 
   @override
-  OnboardingViewModel viewModelBuilder(BuildContext context) => OnboardingViewModel();
+  OnboardingViewModel viewModelBuilder(BuildContext context) =>
+      OnboardingViewModel();
 }
 
-class OnboardingPage extends StatelessWidget {
-  final String smallTitle;
-  final String largeTitle;
+class OnboardingPageItem extends StatelessWidget {
+  final String imagePath;
+  final String normalText;
+  final String highlightedText;
+  final String subtitle;
 
-  const OnboardingPage({
+  const OnboardingPageItem({
     Key? key,
-    required this.smallTitle,
-    required this.largeTitle,
+    required this.imagePath,
+    required this.normalText,
+    required this.highlightedText,
+    required this.subtitle,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          verticalSpaceLarge,
-          Text(
-            smallTitle,
-            style: GoogleFonts.redHatDisplay(
-              color: Colors.white.withOpacity(0.6),
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
+          const Spacer(flex: 1),
+          Center(
+            child: Image.asset(
+              imagePath,
+              fit: BoxFit.contain,
+              height: 260,
             ),
           ),
-          verticalSpaceTiny,
-          Text(
-            largeTitle,
-            style: GoogleFonts.redHatDisplay(
-              color: Colors.white,
-              fontSize: 40,
-              fontWeight: FontWeight.bold,
-              height: 1.1,
-            ),
-          ),
-          verticalSpaceLarge,
-          const Center(child: MiniDashboardPreview()),
-        ],
-      ),
-    );
-  }
-}
-
-class MiniDashboardPreview extends StatelessWidget {
-  const MiniDashboardPreview({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 280,
-      height: 400,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(
-            color: kcPrimaryColor.withOpacity(0.3),
-            blurRadius: 40,
-            spreadRadius: 10,
-          ),
-        ],
-        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
-      ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        child: Column(
-          children: [
-            // Internal Screen Content
-            _buildInviteBanner(),
-            _buildTabs(),
-            Expanded(
-              child: ListView(
-                physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  _buildLockItem("My safe lock", "₦8,000", 0.6),
-                  _buildLockItem("Others", "₦6,000", 0.3),
-                  _buildLockItem("My safe lock", "₦8,000", 0.9),
-                ],
+          const Spacer(flex: 1),
+          RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: GoogleFonts.redHatDisplay(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                height: 1.25,
               ),
-            ),
-            _buildBottomNav(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInviteBanner() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.bar_chart, color: Colors.white, size: 24),
-          horizontalSpaceSmall,
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Invite friends and earn SATS",
-                  style: GoogleFonts.redHatDisplay(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
+                TextSpan(
+                  text: normalText,
+                  style: const TextStyle(color: Colors.white),
                 ),
-                Text(
-                  "Refer bitSave to your friends...",
-                  style: GoogleFonts.redHatDisplay(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 8,
-                  ),
+                TextSpan(
+                  text: highlightedText,
+                  style: const TextStyle(color: Color(0xFF7D5BFF)),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, color: Colors.white, size: 16),
+          const SizedBox(height: 16),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.redHatDisplay(
+              fontSize: 15,
+              fontWeight: FontWeight.w400,
+              color: const Color(0xFF9E9CA7),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
-    );
-  }
-
-  Widget _buildTabs() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          _tab("Ongoing", true),
-          _tab("Paid Back", false),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab(String label, bool active) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: active ? kcPrimaryColor : Colors.transparent,
-              width: 2,
-            ),
-          ),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.redHatDisplay(
-            color: active ? kcPrimaryColor : Colors.grey,
-            fontSize: 12,
-            fontWeight: active ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLockItem(String title, String amount, double progress) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2E2E2E),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.account_balance_wallet, color: kcPrimaryColor, size: 16),
-          ),
-          horizontalSpaceSmall,
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.redHatDisplay(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  "$amount  Duration: 6 Months",
-                  style: GoogleFonts.redHatDisplay(color: Colors.grey, fontSize: 8),
-                ),
-                verticalSpaceTiny,
-                LinearProgressIndicator(
-                  value: progress,
-                  backgroundColor: Colors.grey.withOpacity(0.2),
-                  valueColor: const AlwaysStoppedAnimation(kcPrimaryColor),
-                  minHeight: 2,
-                ),
-              ],
-            ),
-          ),
-          horizontalSpaceSmall,
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: kcPrimaryColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              "Unlock",
-              style: GoogleFonts.redHatDisplay(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFF2E2E2E), width: 1)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _navItem(Icons.home, "Home", true),
-          _navItem(Icons.account_balance_wallet, "Savings", false),
-          _navCenterItem(),
-          _navItem(Icons.insights, "Insights", false),
-          _navItem(Icons.card_giftcard, "Invite", false),
-        ],
-      ),
-    );
-  }
-
-  Widget _navItem(IconData icon, String label, bool active) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: active ? kcPrimaryColor : Colors.grey, size: 16),
-        Text(
-          label,
-          style: GoogleFonts.redHatDisplay(color: active ? kcPrimaryColor : Colors.grey, fontSize: 6),
-        ),
-      ],
-    );
-  }
-
-  Widget _navCenterItem() {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: const BoxDecoration(
-        color: kcPrimaryColor,
-        shape: BoxShape.circle,
-      ),
-      child: const Icon(Icons.swap_horiz, color: Colors.white, size: 20),
     );
   }
 }

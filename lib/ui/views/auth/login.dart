@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:stacked/stacked.dart';
 import '../../../app/app.locator.dart';
 import '../../../app/app.router.dart';
@@ -9,7 +10,6 @@ import '../../components/submit_button.dart';
 import '../../components/text_field_widget.dart';
 import 'auth_view.dart';
 import 'auth_viewmodel.dart';
-import 'forgetPasswordView.dart';
 
 
 
@@ -105,10 +105,61 @@ class _LoginState extends State<LoginScreen> {
                     boldText: true,
                     textColor: kcWhiteColor,
                     label: "Login",
-                    submit: () {
-                       model.login();
+                    submit: () async {
+                      final emailVal = model.email.text.trim();
+                      final passVal = model.password.text.trim();
+                      if (emailVal.isEmpty || passVal.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Please enter both your email and password.',
+                              style: GoogleFonts.redHatDisplay(color: Colors.white),
+                            ),
+                            backgroundColor: const Color(0xFF6B4EE6),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      await model.login();
+                      // If model still has an error message after login attempt, show it
+                      if (model.hasError) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                model.modelError?.toString() ?? 'Invalid credentials. Please try again.',
+                                style: GoogleFonts.redHatDisplay(color: Colors.white),
+                              ),
+                              backgroundColor: Colors.redAccent,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          );
+                        }
+                      }
                     },
                     color: kcPrimaryColor,
+                  ),
+                  verticalSpaceTiny,
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () => widget.onSwitch(AuthType.forgotPassword),
+                      child: Text(
+                        'Forgot Password?',
+                        style: GoogleFonts.redHatDisplay(
+                          color: kcPrimaryColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ),
                   verticalSpaceMedium,
                   // ── Sign-up prompt ─────────────────────────────────────

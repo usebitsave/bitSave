@@ -1,106 +1,136 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import '../app/app.locator.dart';
+import '../core/data/models/api_models.dart';
+import '../core/data/models/user_model.dart' as legacy;
+import '../core/data/repositories/repository.dart';
+import '../core/services/secure_storage_service.dart';
+import '../core/utils/local_store_dir.dart';
+import '../core/utils/local_stotage.dart';
 import '../models/user_model.dart';
+import '../state.dart';
 
 class AuthenticationService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _secureStorage = locator<SecureStorageService>();
+  final _repository = locator<Repository>();
+  final _localStorage = locator<LocalStorage>();
 
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
-  FirebaseAuth get firebaseAuth => _auth;
-  FirebaseFirestore get firestore => _firestore;
 
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  BitSaveUserProfile? _apiProfile;
+  BitSaveUserProfile? get apiProfile => _apiProfile;
 
-  Future<UserCredential> registerNewUser({
-    required String email,
-    required String password,
-    required String fullName,
-    required String dob,
-  }) async {
-    try {
-      final credential = await _auth.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
+  String? _currentUserId;
+  String? get currentUserId => _currentUserId;
 
-      final String uid = credential.user!.uid;
+  bool get isAuthenticated => _currentUser != null || _apiProfile != null;
 
-      _currentUser = UserModel(
-        uid: uid,
-        fullName: fullName.trim(),
-        email: email.trim(),
-        dob: dob,
-        walletBalanceNGN: 0.0,
-        createdAt: DateTime.now(),
-        isProfileComplete: true,
-      );
-
-      await _firestore.collection('users').doc(uid).set(_currentUser!.toJson());
-
-      // Send Firebase Email Verification link
-      await credential.user!.sendEmailVerification();
-
-      return credential;
-    } on FirebaseAuthException catch (e) {
-      print('Firebase Auth Error: ${e.message}');
-      rethrow;
-    } catch (e) {
-      print('General Backend Error during provisioning: $e');
-      rethrow;
-    }
+  void setCurrentUser(UserModel user, String userId) {
+    _currentUser = user;
+    _currentUserId = userId;
   }
 
-  Future<UserCredential?> signIn(String email, String password) async {
-    try {
-      return await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
-    } on FirebaseAuthException catch (e) {
-      print('Firebase Auth SignIn Error: ${e.message}');
-      return null;
-    } catch (e) {
-      print('General sign-in error: $e');
-      return null;
-    }
-  }
+  /// Sets up user state after receiving JWT token from register or login
+  Future<bool> handleAuthSuccess(String token, {String? email, String? fullName}) async {
+    // 1. Store JWT token securely
+    await _secureStorage.saveToken(token);
 
-  /// STEP 2: Fetch existing user profile data from Firestore DTO
-  Future<UserModel?> fetchUserProfile(String uid) async {
+    // 2. Fetch authenticated user profile from GET /api/v1/users/me
     try {
-      DocumentSnapshot doc = await _firestore.collection('users').doc(uid).get();
-      
-      if (doc.exists && doc.data() != null) {
-        _currentUser = UserModel.fromJson(doc.data() as Map<String, dynamic>);
-        return _currentUser;
+      final profileResp = await _repository.getProfile();
+      if (profileResp.isSuccess && profileResp.data != null) {
+        final profileData = profileResp.data;
+        if (profileData is Map<String, dynamic>) {
+          _apiProfile = BitSaveUserProfile.fromJson(profileData);
+          _currentUserId = _apiProfile!.id;
+          await _secureStorage.saveUserId(_apiProfile!.id);
+          await _secureStorage.saveUserEmail(_apiProfile!.email);
+
+          // Populate UserModel for UI views
+          final userEmail = _apiProfile!.email;
+          final userName = (fullName != null && fullName.isNotEmpty)
+              ? fullName
+              : userEmail.split('@').first;
+
+          _currentUser = UserModel(
+            uid: _apiProfile!.id,
+            fullName: userName,
+            email: userEmail,
+            dob: '',
+            walletBalanceNGN: 0.0,
+            createdAt: _apiProfile!.createdAt,
+            isProfileComplete: true,
+          );
+
+          // Update legacy User state for views using state.dart
+          profile.value = legacy.User(
+            email: userEmail,
+            firstName: userName,
+            username: userName,
+            createdAt: _apiProfile!.createdAt,
+          );
+          userLoggedIn.value = true;
+
+          // Save to local storage for quick offline display
+          await _localStorage.save(
+            LocalStorageDir.authUser,
+            jsonEncode(_currentUser!.toJson()),
+          );
+
+          return true;
+        }
       }
-      return null;
     } catch (e) {
-      print("Error fetching user profile DTO: $e");
-      rethrow;
+      debugPrint("Error fetching user profile after auth: $e");
     }
+
+    // Fallback if profile fetch fails: construct basic session
+    final fallbackEmail = email ?? 'user@bitsave.io';
+    final fallbackName = (fullName != null && fullName.isNotEmpty)
+        ? fullName
+        : fallbackEmail.split('@').first;
+
+    _currentUser = UserModel(
+      uid: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+      fullName: fallbackName,
+      email: fallbackEmail,
+      dob: '',
+      walletBalanceNGN: 0.0,
+    );
+    userLoggedIn.value = true;
+    return true;
   }
 
   Future<void> addFundsToWallet(double amount) async {
-    final user = _auth.currentUser;
-    if (user == null) throw Exception("User is not authenticated");
-    
-    await _firestore.collection('users').doc(user.uid).update({
-      'walletBalanceNGN': FieldValue.increment(amount),
-    });
-    
     if (_currentUser != null) {
       _currentUser = _currentUser!.copyWith(
-        walletBalanceNGN: _currentUser!.walletBalanceNGN + amount,
+        walletBalanceNGN: (_currentUser!.walletBalanceNGN) + amount,
       );
     }
   }
 
-  /// STEP 3: Sign Out Utility
+  Future<void> fetchUserProfile([String? userId]) async {
+    final resp = await _repository.getProfile();
+    if (resp.isSuccess && resp.data is Map<String, dynamic>) {
+      _apiProfile = BitSaveUserProfile.fromJson(resp.data);
+      _currentUserId = _apiProfile!.id;
+      if (_currentUser != null) {
+        _currentUser = _currentUser!.copyWith(
+          email: _apiProfile!.email,
+          createdAt: _apiProfile!.createdAt,
+        );
+      }
+    }
+  }
+
   Future<void> logout() async {
-    await _auth.signOut();
+    await _secureStorage.clearAuth();
+    await _localStorage.delete(LocalStorageDir.authUser);
     _currentUser = null;
+    _apiProfile = null;
+    _currentUserId = null;
+    userLoggedIn.value = false;
+    profile.value = legacy.User();
   }
 }

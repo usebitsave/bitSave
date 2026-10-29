@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stacked/stacked.dart';
 import 'package:bitSave/state.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../../models/lock_plan_model.dart';
 import '../../../core/data/models/mavapay_models.dart';
@@ -211,7 +209,7 @@ class Savings extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
-                  _buildBitcoinSavingsTotal(),
+                  _buildBitcoinSavingsTotal(model),
                   const SizedBox(width: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -414,12 +412,14 @@ class Savings extends StatelessWidget {
   }
 
   Widget _buildOngoingSavingsSection(BuildContext context, ReportsViewModel model, Color primaryColor) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return Center(
-        child: Text('Please log in to view savings.', style: GoogleFonts.redHatDisplay(color: Colors.white54)),
-      );
-    }
+    final filteredPlans = model.savingsPlans.where((plan) {
+      final daysLeft = plan.targetMaturityDate.difference(DateTime.now()).inDays;
+      if (model.selectedTab == 0) {
+        return daysLeft > 0;
+      } else {
+        return daysLeft <= 0;
+      }
+    }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -478,47 +478,15 @@ class Savings extends StatelessWidget {
         ),
         const SizedBox(height: 24),
 
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('savings')
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator(color: Color(0xFF6B4EE6)));
-            }
-
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return _buildEmptySavings(model.selectedTab);
-            }
-
-            final plans = snapshot.data!.docs.map((doc) {
-              return LockPlanModel.fromJson(doc.data() as Map<String, dynamic>);
-            }).toList();
-
-            final filteredPlans = plans.where((plan) {
-              final daysLeft = plan.targetMaturityDate.difference(DateTime.now()).inDays;
-              if (model.selectedTab == 0) {
-                return daysLeft > 0;
-              } else {
-                return daysLeft <= 0;
-              }
-            }).toList();
-
-            if (filteredPlans.isEmpty) {
-              return _buildEmptySavings(model.selectedTab);
-            }
-
-            return Column(
-              children: filteredPlans.map((plan) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _buildSavingsCardFromPlan(context, model, plan),
-              )).toList(),
-            );
-          },
-        ),
+        if (filteredPlans.isEmpty)
+          _buildEmptySavings(model.selectedTab)
+        else
+          Column(
+            children: filteredPlans.map((plan) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildSavingsCardFromPlan(context, model, plan),
+            )).toList(),
+          ),
       ],
     );
   }
@@ -559,39 +527,15 @@ class Savings extends StatelessWidget {
     );
   }
 
-  Widget _buildBitcoinSavingsTotal() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return Text(
-        '0 sats',
-        style: GoogleFonts.redHatDisplay(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-      );
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('savings')
-          .snapshots(),
-      builder: (context, snapshot) {
-        int totalSats = 0;
-        if (snapshot.hasData) {
-          for (final doc in snapshot.data!.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            totalSats += (data['satsAllocated'] ?? 0) as int;
-          }
-        }
-        final formattedSats = NumberFormat.decimalPattern().format(totalSats);
-        return Text(
-          '$formattedSats sats',
-          style: GoogleFonts.redHatDisplay(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        );
-      },
+  Widget _buildBitcoinSavingsTotal(ReportsViewModel model) {
+    final formattedSats = NumberFormat.decimalPattern().format(model.totalSavingsSats);
+    return Text(
+      '$formattedSats sats',
+      style: GoogleFonts.redHatDisplay(
+        fontSize: 28,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
     );
   }
 
@@ -734,84 +678,67 @@ class Savings extends StatelessWidget {
   }
 
   void _showGeneralWithdrawDialog(BuildContext context, ReportsViewModel model) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    final maturedPlans = model.savingsPlans
+        .where((plan) => plan.targetMaturityDate.difference(DateTime.now()).inDays <= 0)
+        .toList();
 
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('savings')
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return AlertDialog(
-                title: Text('Withdraw Savings', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
-                content: Text('You have no savings plans to withdraw.', style: GoogleFonts.redHatDisplay()),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            }
-
-            final maturedPlans = snapshot.data!.docs
-                .map((doc) => LockPlanModel.fromJson(doc.data() as Map<String, dynamic>))
-                .where((plan) => plan.targetMaturityDate.difference(DateTime.now()).inDays <= 0)
-                .toList();
-
-            if (maturedPlans.isEmpty) {
-              return AlertDialog(
-                title: Text('Withdraw Savings', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
-                content: Text('You have no matured savings available for withdrawal. Only matured savings can be withdrawn.', style: GoogleFonts.redHatDisplay()),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            }
-
-            return AlertDialog(
-              title: Text('Select Matured Plan', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: maturedPlans.length,
-                  itemBuilder: (context, index) {
-                    final plan = maturedPlans[index];
-                    final formattedSats = NumberFormat.decimalPattern().format(plan.satsAllocated);
-                    return ListTile(
-                      title: Text('$formattedSats sats (₦${plan.fiatAmountNGN.toStringAsFixed(0)})'),
-                      subtitle: Text('Locked on ${DateFormat('yyyy-MM-dd').format(plan.createdAt)}'),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                      onTap: () {
-                        Navigator.of(dialogContext).pop();
-                        _showWithdrawDetailsDialog(context, model, plan);
-                      },
-                    );
-                  },
-                ),
+        if (model.savingsPlans.isEmpty) {
+          return AlertDialog(
+            title: Text('Withdraw Savings', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
+            content: Text('You have no savings plans to withdraw.', style: GoogleFonts.redHatDisplay()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            );
-          },
+            ],
+          );
+        }
+
+        if (maturedPlans.isEmpty) {
+          return AlertDialog(
+            title: Text('Withdraw Savings', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
+            content: Text('You have no matured savings available for withdrawal. Only matured savings can be withdrawn.', style: GoogleFonts.redHatDisplay()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        }
+
+        return AlertDialog(
+          title: Text('Select Matured Plan', style: GoogleFonts.redHatDisplay(fontWeight: FontWeight.bold)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: maturedPlans.length,
+              itemBuilder: (context, index) {
+                final plan = maturedPlans[index];
+                final formattedSats = NumberFormat.decimalPattern().format(plan.satsAllocated);
+                return ListTile(
+                  title: Text('$formattedSats sats (₦${plan.fiatAmountNGN.toStringAsFixed(0)})'),
+                  subtitle: Text('Locked on ${DateFormat('yyyy-MM-dd').format(plan.createdAt)}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                  onTap: () {
+                    Navigator.of(dialogContext).pop();
+                    _showWithdrawDetailsDialog(context, model, plan);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
         );
       },
     );

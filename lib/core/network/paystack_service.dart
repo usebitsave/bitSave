@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 
 class PaystackService {
@@ -13,17 +12,12 @@ class PaystackService {
     };
   }
 
-  /// Fetches the Paystack secret key from Firestore
+  /// Fetches the Paystack secret key (configure via backend or env)
   Future<String?> _getSecretKey() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('config').doc('paystack').get();
-      if (doc.exists && doc.data() != null) {
-        return doc.data()!['secretKey'] as String?;
-      }
-    } catch (e) {
-      print('Error fetching Paystack key from Firestore: $e');
-    }
-    return null;
+    // TODO: Fetch secret key from your secure backend or environment
+    const envKey = String.fromEnvironment('PAYSTACK_SECRET_KEY');
+    if (envKey.isNotEmpty) return envKey;
+    return 'sk_test_placeholder';
   }
 
   /// Initializes a transaction and returns the authorization URL and reference

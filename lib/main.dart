@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app/app.locator.dart';
 import 'app/app.router.dart';
 import 'package:stacked_services/stacked_services.dart';
-import 'firebase_options.dart';
 import 'package:bitSave/state.dart';
 import 'package:bitSave/ui/common/app_colors.dart';
 import 'core/utils/local_stotage.dart';
@@ -14,14 +11,6 @@ import 'core/utils/local_store_dir.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Disable reCAPTCHA verification on emulators/debug builds
-  if (kDebugMode) {
-    await FirebaseAuth.instance.setSettings(
-      appVerificationDisabledForTesting: true,
-    );
-  }
 
   // Register services / locator for use in viewmodels
   setupLocator();
@@ -30,7 +19,7 @@ Future<void> main() async {
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({Key? key}) : super(key: key); // no sdk param anymore
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -75,7 +64,7 @@ class _MyAppState extends State<MyApp> {
         themeMode: value == AppUiModes.dark ? ThemeMode.dark : ThemeMode.light,
         initialRoute: Routes.startupView,
         onGenerateRoute: StackedRouter().onGenerateRoute,
-        navigatorKey: locator<NavigationService>().navigatorKey,
+        navigatorKey: StackedService.navigatorKey,
         debugShowCheckedModeBanner: false,
         navigatorObservers: [StackedService.routeObserver],
         builder: (context, child) {
