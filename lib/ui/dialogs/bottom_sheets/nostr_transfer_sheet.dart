@@ -368,14 +368,34 @@ class _NostrTransferSheetState extends State<NostrTransferSheet> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [1000, 5000, 10000, 25000, 50000].map((sats) {
+                final currentSats = int.tryParse(_satsController.text.replaceAll(',', '')) ?? 0;
+                final isSelected = currentSats == sats;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: ActionChip(
-                    label: Text('${fmt.format(sats)} sats'),
-                    onPressed: () => _selectPresetSats(sats),
-                    backgroundColor: Colors.white.withValues(alpha: 0.06),
-                    labelStyle: GoogleFonts.redHatDisplay(color: Colors.white70, fontSize: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: InkWell(
+                    onTap: () => _selectPresetSats(sats),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF6B4EE6) : const Color(0xFF262238),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF9D84F6)
+                              : Colors.white.withValues(alpha: 0.15),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '${fmt.format(sats)} sats',
+                        style: GoogleFonts.redHatDisplay(
+                          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ),
                 );
               }).toList(),

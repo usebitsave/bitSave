@@ -296,14 +296,34 @@ class _SaveBitcoinSheetState extends State<SaveBitcoinSheet> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [5000.0, 10000.0, 25000.0, 50000.0, 100000.0].map((preset) {
+                final currentAmount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
+                final isSelected = (currentAmount - preset).abs() < 0.01;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: ActionChip(
-                    label: Text('₦${fmt.format(preset)}'),
-                    onPressed: () => _selectPreset(preset),
-                    backgroundColor: Colors.white.withValues(alpha: 0.06),
-                    labelStyle: GoogleFonts.redHatDisplay(color: Colors.white70, fontSize: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: InkWell(
+                    onTap: () => _selectPreset(preset),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF6B4EE6) : const Color(0xFF262238),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF9D84F6)
+                              : Colors.white.withValues(alpha: 0.15),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '₦${fmt.format(preset)}',
+                        style: GoogleFonts.redHatDisplay(
+                          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ),
                 );
               }).toList(),
